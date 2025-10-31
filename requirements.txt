@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+requests
+feedparser
+python-dateutil
+beautifulsoup4
+lxml
+supabase
+playwright
+pyee
