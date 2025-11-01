@@ -48,7 +48,7 @@ _VERCL_RE = re.compile(r"^https://[a-z0-9-]+\.vercel\.app$", re.I)
 def _origin_ok(origin: str) -> bool:
     if not origin:
         return False
-    if origin in __ALLOWED:
+    if origin in _ALLOWED:
         return True
     if _VERCL_RE.match(origin):
         return True
