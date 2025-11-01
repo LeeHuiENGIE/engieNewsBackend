@@ -8,3 +8,5 @@ lxml
 supabase
 beautifulsoup4
 python-dotenv
+playwright
+
