@@ -1,29 +1,10 @@
 # back/main.py
-# back/main.py
 from dotenv import load_dotenv
 load_dotenv()
 
 import os, re
 from fastapi import FastAPI
 from starlette.responses import Response
-
-import os
-from starlette.responses import Response
-
-BACKEND_API_TOKEN = os.getenv("BACKEND_API_TOKEN", "").strip()
-
-@app.middleware("http")
-async def guard_refresh(request, call_next):
-    if request.method.upper() == "OPTIONS":
-        return Response(status_code=200)  # let preflight pass
-
-    path = request.url.path
-    if request.method.upper() == "POST" and path.startswith("/refresh"):
-        if BACKEND_API_TOKEN and request.headers.get("x-backend-token") != BACKEND_API_TOKEN:
-            return Response(status_code=401, content="Unauthorized")
-
-    return await call_next(request)
-
 
 # ---------------- Config Imports ----------------
 from .config import USE_SUPABASE, DAYS_LIMIT
@@ -45,6 +26,24 @@ from back.supabase_events import fetch_upcoming_events
 
 # ---------------- FastAPI App ----------------
 app = FastAPI(title="ENGIE News API (Render)")
+
+# ---------------- Security Guard (token check) ----------------
+BACKEND_API_TOKEN = os.getenv("BACKEND_API_TOKEN", "").strip()
+
+@app.middleware("http")
+async def guard_refresh(request, call_next):
+    # Allow all preflights (OPTIONS) so browser can proceed
+    if request.method.upper() == "OPTIONS":
+        return Response(status_code=200)
+
+    # Protect actual POST /refresh endpoints
+    if request.method.upper() == "POST" and request.url.path.startswith("/refresh"):
+        token = request.headers.get("x-backend-token")
+        if BACKEND_API_TOKEN and token != BACKEND_API_TOKEN:
+            print("🚫 Unauthorized refresh attempt (missing/invalid token)")
+            return Response(status_code=401, content="Unauthorized")
+
+    return await call_next(request)
 
 # ---------------- CORS (explicit, supports *.vercel.app) ----------------
 _ALLOWED = [
