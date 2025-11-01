@@ -29,27 +29,60 @@ from back.supabase_events import fetch_upcoming_events
 app = FastAPI(title="ENGIE News API (Render)")
 
 # ---------------- CORS (final stable config) ----------------
-DEFAULT_ALLOWED = [
-    "https://engie-news-repo3-0.vercel.app",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+# ---------------- FastAPI App ----------------
+app = FastAPI(title="ENGIE News API (Render)")
+
+# ---------------- CORS (explicit, works with Vercel + Render) ----------------
+import re
+from starlette.responses import Response
+
+# ALLOW_ORIGINS env (comma separated), plus wildcard for *.vercel.app
+_ALLOWED = [
+    o.strip() for o in os.getenv(
+        "ALLOW_ORIGINS",
+        "https://engie-news-repo3-0.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",")
 ]
-ENV_ALLOWED = [o.strip() for o in os.getenv("ALLOW_ORIGINS", "").split(",") if o.strip()]
-ALLOWED = list(dict.fromkeys(DEFAULT_ALLOWED + ENV_ALLOWED))  # remove dupes
+_VERCL_RE = re.compile(r"^https://[a-z0-9-]+\.vercel\.app$", re.I)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED,
-    # ⚠️ Removed regex — this was breaking preflights on Render
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def _origin_ok(origin: str) -> bool:
+    if not origin:
+        return False
+    if origin in __ALLOWED:
+        return True
+    if _VERCL_RE.match(origin):
+        return True
+    return False
 
-# Ensure OPTIONS always replies with 204
-@app.options("/{rest_of_path:path}")
-def preflight_handler(rest_of_path: str):
-    return Response(status_code=204)
+@app.middleware("http")
+async def cors_middleware(request, call_next):
+    origin = request.headers.get("origin", "")
+    # Handle CORS preflight explicitly
+    if request.method.upper() == "OPTIONS":
+        headers = {}
+        if _origin_ok(origin):
+            headers.update({
+                "Access-Control-Allow-Origin": origin,
+                "Vary": "Origin",
+                "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+                "Access-Control-Allow-Headers": request.headers.get(
+                    "access-control-request-headers", "*"
+                ),
+                # We don't use cookies; avoid credential headaches
+                "Access-Control-Allow-Credentials": "false",
+                "Access-Control-Max-Age": "600",
+            })
+        # Always 200 for preflight
+        return Response(status_code=200, headers=headers)
+
+    # Normal requests: add CORS headers if origin allowed
+    response = await call_next(request)
+    if _origin_ok(origin):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Credentials"] = "false"
+    return response
+
 
 # ---------------- Health ----------------
 @app.get("/health")
