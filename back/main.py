@@ -7,6 +7,24 @@ import os, re
 from fastapi import FastAPI
 from starlette.responses import Response
 
+import os
+from starlette.responses import Response
+
+BACKEND_API_TOKEN = os.getenv("BACKEND_API_TOKEN", "").strip()
+
+@app.middleware("http")
+async def guard_refresh(request, call_next):
+    if request.method.upper() == "OPTIONS":
+        return Response(status_code=200)  # let preflight pass
+
+    path = request.url.path
+    if request.method.upper() == "POST" and path.startswith("/refresh"):
+        if BACKEND_API_TOKEN and request.headers.get("x-backend-token") != BACKEND_API_TOKEN:
+            return Response(status_code=401, content="Unauthorized")
+
+    return await call_next(request)
+
+
 # ---------------- Config Imports ----------------
 from .config import USE_SUPABASE, DAYS_LIMIT
 from .fetch_news import fetch_filtered_news
