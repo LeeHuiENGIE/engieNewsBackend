@@ -1,5 +1,7 @@
 # back/main.py
 # back/main.py
+from back.app import init_guard_middleware
+init_guard_middleware(app)
 from dotenv import load_dotenv
 load_dotenv()
 
