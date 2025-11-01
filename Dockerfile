@@ -1,5 +1,7 @@
 # Base image with Playwright + Chromium preinstalled
-FROM mcr.microsoft.com/playwright/python:v1.48.2-jammy
+
+FROM mcr.microsoft.com/playwright/python:lts-jammy
+
 
 # Work directory inside the container
 WORKDIR /app
