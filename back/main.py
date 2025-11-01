@@ -3,9 +3,9 @@
 from dotenv import load_dotenv
 load_dotenv()  # finds .env in root by default
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 import os
+from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
 
 # ---------------- Config Imports ----------------
 from .config import USE_SUPABASE, DAYS_LIMIT
@@ -28,23 +28,31 @@ from back.supabase_events import fetch_upcoming_events
 # ---------------- FastAPI App ----------------
 app = FastAPI(title="ENGIE News API (Render)")
 
-# ---------------- CORS Config ----------------
-# ---------------- CORS Config (fixed for Vercel + Render) ----------------
-ALLOWED = [
-    o.strip() for o in os.getenv(
-        "ALLOW_ORIGINS",
-        "https://engie-news-repo3-0.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
-    ).split(",")
+# ---------------- CORS ----------------
+# Allow your Vercel prod site, Vercel preview URLs (*.vercel.app), and local dev.
+# You can also override/append via the ALLOW_ORIGINS env (comma-separated).
+DEFAULT_ALLOWED = [
+    "https://engie-news-repo3-0.vercel.app",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
+
+ENV_ALLOWED = [o.strip() for o in os.getenv("ALLOW_ORIGINS", "").split(",") if o.strip()]
+ALLOWED = list(dict.fromkeys(DEFAULT_ALLOWED + ENV_ALLOWED))  # de-dup while preserving order
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED,
-    allow_origin_regex=r"https://.*\.vercel\.app$",  # allow preview deploys too
-    allow_credentials=False,  # we aren't using cookies; fixes 401 preflight issue
+    allow_origins=ALLOWED,                 # explicit origins (localhost + prod)
+    allow_origin_regex=r"https://.*\.vercel\.app$",  # preview deployments
+    allow_credentials=False,               # we don't use cookies
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Explicitly return for preflight so proxies never block it
+@app.options("/{full_path:path}")
+def preflight(full_path: str):
+    return Response(status_code=204)
 
 # ---------------- Health ----------------
 @app.get("/health")
