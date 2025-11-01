@@ -29,18 +29,20 @@ from back.supabase_events import fetch_upcoming_events
 app = FastAPI(title="ENGIE News API (Render)")
 
 # ---------------- CORS Config ----------------
+# ---------------- CORS Config (fixed for Vercel + Render) ----------------
 ALLOWED = [
     o.strip() for o in os.getenv(
         "ALLOW_ORIGINS",
-        "https://engie-news-repo3-0.vercel.app,http://localhost:5173"
+        "https://engie-news-repo3-0.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
     ).split(",")
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED,
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origin_regex=r"https://.*\.vercel\.app$",  # allow preview deploys too
+    allow_credentials=False,  # we aren't using cookies; fixes 401 preflight issue
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
