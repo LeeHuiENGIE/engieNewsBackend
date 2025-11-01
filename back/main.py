@@ -3,9 +3,9 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-import os
-from fastapi import FastAPI, Response
-from fastapi.middleware.cors import CORSMiddleware
+import os, re
+from fastapi import FastAPI
+from starlette.responses import Response
 
 # ---------------- Config Imports ----------------
 from .config import USE_SUPABASE, DAYS_LIMIT
@@ -28,14 +28,7 @@ from back.supabase_events import fetch_upcoming_events
 # ---------------- FastAPI App ----------------
 app = FastAPI(title="ENGIE News API (Render)")
 
-# ---------------- CORS (final stable config) ----------------
-# ---------------- FastAPI App ----------------
-app = FastAPI(title="ENGIE News API (Render)")
-
 # ---------------- CORS (explicit, works with Vercel + Render) ----------------
-import re
-from starlette.responses import Response
-
 # ALLOW_ORIGINS env (comma separated), plus wildcard for *.vercel.app
 _ALLOWED = [
     o.strip() for o in os.getenv(
@@ -72,7 +65,6 @@ async def cors_middleware(request, call_next):
                 "Access-Control-Allow-Credentials": "false",
                 "Access-Control-Max-Age": "600",
             })
-        # Always 200 for preflight
         return Response(status_code=200, headers=headers)
 
     # Normal requests: add CORS headers if origin allowed
@@ -82,7 +74,6 @@ async def cors_middleware(request, call_next):
         response.headers["Vary"] = "Origin"
         response.headers["Access-Control-Allow-Credentials"] = "false"
     return response
-
 
 # ---------------- Health ----------------
 @app.get("/health")
