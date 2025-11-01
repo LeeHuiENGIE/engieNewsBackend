@@ -1,7 +1,5 @@
 # back/main.py
 # back/main.py
-from back.app import init_guard_middleware
-init_guard_middleware(app)
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -23,15 +21,14 @@ else:
     from .airtable_writer import write_to_airtable as write_to_backend
     BACKEND_NAME = "airtable"
 
-# ----- Events backend (new) -----
+# ----- Events backend -----
 from back.events_ingest import run_events_ingest
 from back.supabase_events import fetch_upcoming_events
 
 # ---------------- FastAPI App ----------------
 app = FastAPI(title="ENGIE News API (Render)")
 
-# ---------------- CORS (explicit, works with Vercel + Render) ----------------
-# ALLOW_ORIGINS env (comma separated), plus wildcard for *.vercel.app
+# ---------------- CORS (explicit, supports *.vercel.app) ----------------
 _ALLOWED = [
     o.strip() for o in os.getenv(
         "ALLOW_ORIGINS",
@@ -52,7 +49,7 @@ def _origin_ok(origin: str) -> bool:
 @app.middleware("http")
 async def cors_middleware(request, call_next):
     origin = request.headers.get("origin", "")
-    # Handle CORS preflight explicitly
+    # Preflight
     if request.method.upper() == "OPTIONS":
         headers = {}
         if _origin_ok(origin):
@@ -63,19 +60,18 @@ async def cors_middleware(request, call_next):
                 "Access-Control-Allow-Headers": request.headers.get(
                     "access-control-request-headers", "*"
                 ),
-                # We don't use cookies; avoid credential headaches
                 "Access-Control-Allow-Credentials": "false",
                 "Access-Control-Max-Age": "600",
             })
         return Response(status_code=200, headers=headers)
 
-    # Normal requests: add CORS headers if origin allowed
-    response = await call_next(request)
+    # Normal requests
+    resp = await call_next(request)
     if _origin_ok(origin):
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Vary"] = "Origin"
-        response.headers["Access-Control-Allow-Credentials"] = "false"
-    return response
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Vary"] = "Origin"
+        resp.headers["Access-Control-Allow-Credentials"] = "false"
+    return resp
 
 # ---------------- Health ----------------
 @app.get("/health")
@@ -98,8 +94,6 @@ def refresh():
         print("☁️ Writing to Supabase...")
         written, errs, sample = write_to_backend(news)
         print(f"✅  Written {written} rows. Errors: {len(errs)}")
-        if errs:
-            print("Example error:", errs[0])
         return {
             "status": "updated",
             "fetched": len(news),
