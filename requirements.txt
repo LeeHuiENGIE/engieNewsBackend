@@ -6,5 +6,5 @@ python-dateutil
 beautifulsoup4
 lxml
 supabase
-playwright
-pyee
+beautifulsoup4
+python-dotenv
