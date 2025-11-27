@@ -5,6 +5,8 @@
 #   - Python 3.11
 #   - Playwright v1.55.0
 #   - Chromium, Firefox, WebKit + all dependencies
+# force rebuild 123
+
 FROM mcr.microsoft.com/playwright/python:v1.55.0-jammy
 
 # -----------------------------
