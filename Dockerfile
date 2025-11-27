@@ -3,11 +3,11 @@
 # ==========================================================
 # This image includes:
 #   - Python 3.11
-#   - Playwright v1.55.0
+#   - Playwright v1.56.0
 #   - Chromium, Firefox, WebKit + all dependencies
-# force rebuild 123
+# force rebuild 456
 
-FROM mcr.microsoft.com/playwright/python:v1.55.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.56.0-jammy
 
 # -----------------------------
 # 1. Set working directory
@@ -17,7 +17,6 @@ WORKDIR /app
 # -----------------------------
 # 2. Copy and install dependencies
 # -----------------------------
-# Copy only requirements first for better build caching
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
@@ -29,11 +28,9 @@ COPY . /app
 # -----------------------------
 # 4. Configure environment
 # -----------------------------
-# Render automatically sets $PORT
 ENV PORT=10000
 EXPOSE 10000
 
-# -----------------------------
 # -----------------------------
 # 5. Start FastAPI with Uvicorn
 # -----------------------------

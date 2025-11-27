@@ -103,7 +103,8 @@ def articles():
 
 @app.post("/refresh")
 def refresh():
-    print("🔄 Fetching new RSS articles...")
+    print("🔄 Fetching new RSS a" \
+    "rticles...")
     news = fetch_filtered_news(days_limit=DAYS_LIMIT)
     print(f"✅  Fetched {len(news)} items.")
 
