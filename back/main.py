@@ -49,7 +49,7 @@ async def guard_refresh(request, call_next):
 _ALLOWED = [
     o.strip() for o in os.getenv(
         "ALLOW_ORIGINS",
-        "https://engie-news-repo1.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
+        "https://engie-news-repo1.vercel.app,http://localhost:5173"
     ).split(",")
 ]
 _VERCL_RE = re.compile(r"^https://[a-z0-9-]+\.vercel\.app$", re.I)
