@@ -53,7 +53,7 @@ RSS_FEEDS = [
 ANY_KEYWORDS = _csv("ANY_KEYWORDS", [
     "engie", "energy", "carbon", "regulation", "policy",
     "emissions", "solar", "wind", "fuel", "battery",
-    "renewable", "storage", "grid", "power", "electricity",
+    "renewable", "storage", "grid", "power", "electricity", "district cooling",
     "Singapore", "Malaysia", "Philippines",
 ])
 ALL_KEYWORDS = _csv("ALL_KEYWORDS", ["energy"])
