@@ -79,6 +79,9 @@ def fetch_allconferencealert_events() -> List[Dict]:
             page = context.new_page()
             print(f"[ACA] GET {url}")
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            html = page.content()
+            print("[ACA] HTML size:", len(html))
+
 
             # Wait for table to render. The site shows a spinner first.
             # We wait for *any* table row to appear.
