@@ -1,12 +1,12 @@
 # back/adapters/events/aca_playwright.py
 from __future__ import annotations
 
-import asyncio
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup  # type: ignore
 
 
 ACA_SOURCES = [
@@ -16,51 +16,154 @@ ACA_SOURCES = [
     ("Philippines","https://www.allconferencealert.com/philippines/energy-conference.html"),
 ]
 
+# Accept both short and long month names
 MONTHS = {
-    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
-    "JUL": 7, "AUG": 8, "SEP": 9, "SEPT": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+    "JAN": 1, "JANUARY": 1,
+    "FEB": 2, "FEBRUARY": 2,
+    "MAR": 3, "MARCH": 3,
+    "APR": 4, "APRIL": 4,
+    "MAY": 5,
+    "JUN": 6, "JUNE": 6,
+    "JUL": 7, "JULY": 7,
+    "AUG": 8, "AUGUST": 8,
+    "SEP": 9, "SEPT": 9, "SEPTEMBER": 9,
+    "OCT": 10, "OCTOBER": 10,
+    "NOV": 11, "NOVEMBER": 11,
+    "DEC": 12, "DECEMBER": 12,
 }
 
-def _infer_year_from_header(title_text: str) -> Optional[int]:
-    """
-    Header usually looks like:
-      'Energy Conference in Singapore 2025-2026'
-       -> return first year (2025)
-    """
-    if not title_text:
-        return None
-    m = re.search(r"(\d{4})(?:\s*[-–]\s*(\d{4}))?", title_text)
-    if m:
-        return int(m.group(1))
-    return None
 
-def _parse_day_mon(day_mon: str, fallback_year: Optional[int]) -> Optional[str]:
+def _clean_text(s: Optional[str]) -> str:
+    return re.sub(r"\s+", " ", (s or "")).strip()
+
+
+# e.g. "20 December 2025", "13th Jan 2026"
+_DATE_RE = re.compile(
+    r"(?P<d>\d{1,2})(?:ST|ND|RD|TH)?\s+(?P<mon>[A-Z][a-zA-Z]+)\s+(?P<y>\d{4})"
+)
+
+
+def _parse_full_date(text: str) -> Optional[str]:
     """
-    Accepts '02 Nov' or '2 Nov'. Returns ISO date string 'YYYY-MM-DD' using fallback_year.
+    Parse dates like '20 December 2025' or '13th Jan 2026' → 'YYYY-MM-DD'
     """
-    if not day_mon:
+    if not text:
         return None
-    s = day_mon.strip().upper().replace(".", "")
-    m = re.match(r"(?P<d>\d{1,2})\s+(?P<mon>[A-Z]{3,4})", s)
+    m = _DATE_RE.search(text)
     if not m:
         return None
+
     d = int(m.group("d"))
-    mon = MONTHS.get(m.group("mon"))
+    mon_raw = m.group("mon").upper()
+    # Try full month, then first 3 letters
+    mon = MONTHS.get(mon_raw) or MONTHS.get(mon_raw[:3])
     if not mon:
         return None
-    y = fallback_year or datetime.now().year
+    y = int(m.group("y"))
     try:
         return datetime(y, mon, d).date().isoformat()
     except ValueError:
         return None
 
-def _clean_text(s: Optional[str]) -> str:
-    return re.sub(r"\s+", " ", (s or "")).strip()
+
+_TITLE_KEYWORDS = (
+    "Conference",
+    "Congress",
+    "Summit",
+    "Symposium",
+    "Meeting",
+    "Forum",
+    "Expo",
+    "Workshop",
+)
+
+
+def _extract_events_from_html(html: str, country_name: str) -> List[Dict]:
+    """
+    Parse the new ACA layout (Tailwind + div-based cards) into normalized rows:
+      title, region, city, venue, starts_on, ends_on, link, source
+    """
+    soup = BeautifulSoup(html, "lxml")
+
+    # Try to narrow to "Upcoming Energy Conferences in <country>" section
+    header_pat = re.compile(
+        rf"Upcoming Energy Conferences in .*{re.escape(country_name)}",
+        re.I,
+    )
+    header_node = soup.find(string=header_pat)
+    if header_node:
+        container = header_node.parent
+        # Walk up a few levels to capture the surrounding conference list wrapper
+        for _ in range(4):
+            if container.parent:
+                container = container.parent
+        section_text = container.get_text("\n", strip=True)
+    else:
+        # Fallback: whole page text
+        section_text = soup.get_text("\n", strip=True)
+
+    events: List[Dict] = []
+
+    # Each event card ends with a "View Event" button; use that to split.
+    chunks = re.split(r"View Event", section_text)
+
+    for raw_chunk in chunks:
+        lines = [ln.strip() for ln in raw_chunk.splitlines() if ln.strip()]
+        if len(lines) < 3:
+            continue
+
+        title = None
+        date_line = None
+        loc_line = None
+
+        # Find a title-looking line
+        for ln in lines:
+            if any(k in ln for k in _TITLE_KEYWORDS):
+                title = ln
+                break
+
+        # Find a date-looking line
+        for ln in lines:
+            if _DATE_RE.search(ln):
+                date_line = ln
+                break
+
+        # Find a location line that references the country and has a comma
+        for ln in lines:
+            if "," in ln and country_name.lower() in ln.lower():
+                loc_line = ln
+                break
+
+        if not (title and date_line and loc_line):
+            continue
+
+        starts_on = _parse_full_date(date_line)
+        if not starts_on:
+            continue
+
+        # Location: "City, Country"
+        city = loc_line.split(",")[0].strip().title()
+
+        events.append(
+            {
+                "title": title,
+                "region": country_name,
+                "city": city,
+                "venue": None,
+                "starts_on": starts_on,
+                "ends_on": None,
+                "link": None,  # could parse event URL later if needed
+                "source": "AllConferenceAlert",
+            }
+        )
+
+    return events
+
 
 def fetch_allconferencealert_events() -> List[Dict]:
     """
-    Uses Playwright (Chromium) to render JS and scrape the events table.
-    Normalized output rows with keys:
+    Uses Playwright (Chromium) to render JS and scrape the new ACA
+    div/card-based layout. Normalized output rows with keys:
       title, region, city, venue, starts_on, ends_on, link, source
     """
     out: List[Dict] = []
@@ -79,77 +182,18 @@ def fetch_allconferencealert_events() -> List[Dict]:
             page = context.new_page()
             print(f"[ACA] GET {url}")
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
+
             html = page.content()
-            print("[ACA] HTML size:", len(html))
+            print(f"[ACA] HTML size: {len(html)}")
 
-
-            # Wait for table to render. The site shows a spinner first.
-            # We wait for *any* table row to appear.
-            try:
-                page.wait_for_selector("table tbody tr", timeout=15000)
-                print(f"[ACA] Table detected for {url}")
-            except Exception:
-                # dump the page title to help debug
-                print(f"[ACA] WARNING: no table found for {url} (title={page.title()!r})")
-                continue
-
-            # Try to get header text to infer year
-            heading_text = ""
-            try:
-                # Header near the table area
-                heading_el = page.query_selector("h1,h2,h3")
-                heading_text = heading_el.inner_text() if heading_el else ""
-            except Exception:
-                pass
-            fallback_year = _infer_year_from_header(heading_text)
-
-            # Iterate rows
-            rows = page.query_selector_all("table tbody tr")
-            for tr in rows:
-                tds = tr.query_selector_all("td")
-                if len(tds) < 3:
-                    continue
-
-                date_text = _clean_text(tds[0].inner_text())          # e.g., "02 Nov"
-                title_el = tds[1].query_selector("a") or tds[1]
-                title_text = _clean_text(title_el.inner_text())
-                href = title_el.get_attribute("href") if title_el else None
-                if href and href.startswith("/"):
-                    # Convert relative to absolute
-                    href = url.rstrip("/") + href
-
-                venue_text = _clean_text(tds[2].inner_text())         # e.g., "Singapore, Singapore"
-
-                # Split venue → city, country
-                city = None
-                region = None
-                if venue_text:
-                    parts = [p.strip() for p in venue_text.split(",") if p.strip()]
-                    if len(parts) == 1:
-                        # Sometimes the site repeats country only (e.g., "Singapore")
-                        city = parts[0].title()
-                        region = parts[0].title()
-                    else:
-                        city = parts[0].title()
-                        region = parts[-1].title()
-
-                starts_on = _parse_day_mon(date_text, fallback_year)
-
-                if title_text and starts_on:
-                    out.append({
-                        "title": title_text,
-                        "region": region or country_name,   # fallback to page country
-                        "city": city,
-                        "venue": None,
-                        "starts_on": starts_on,
-                        "ends_on": None,
-                        "link": href or url,
-                        "source": "AllConferenceAlert",
-                    })
+            rows = _extract_events_from_html(html, country_name)
+            print(f"[ACA] Parsed {len(rows)} rows for {country_name}")
+            out.extend(rows)
 
             page.close()
 
         context.close()
         browser.close()
 
+    print(f"[ACA] Total parsed events: {len(out)}")
     return out
