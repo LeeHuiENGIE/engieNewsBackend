@@ -61,7 +61,7 @@ ALL_KEYWORDS = _csv("ALL_KEYWORDS", ["energy"])
 # Title-only keyword rules (stricter)
 TITLE_KEYWORDS_ANY = _csv("TITLE_KEYWORDS_ANY", [
     "engie",
-    "solar", "energy", "hydrogen", "grid", "wind", "carbon", "LNG", "district cooling", "fuel",
+    "solar", "energy", "hydrogen", "grid", "wind", "carbon", "LNG", "district cooling", "centralised cooling", "fuel",
     "policy", "regulation",
     "emissions",
     "renewable", "storage", "power", "electricity",
