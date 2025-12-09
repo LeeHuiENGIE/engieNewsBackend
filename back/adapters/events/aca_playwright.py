@@ -10,13 +10,12 @@ from bs4 import BeautifulSoup  # type: ignore
 
 
 ACA_SOURCES = [
-    # Country pages to scrape
     ("Singapore",  "https://www.allconferencealert.com/singapore/energy-conference.html"),
     ("Malaysia",   "https://www.allconferencealert.com/malaysia/energy-conference.html"),
     ("Philippines","https://www.allconferencealert.com/philippines/energy-conference.html"),
 ]
 
-# Accept both short and long month names
+# Accept short + long month names
 MONTHS = {
     "JAN": 1, "JANUARY": 1,
     "FEB": 2, "FEBRUARY": 2,
@@ -32,40 +31,6 @@ MONTHS = {
     "DEC": 12, "DECEMBER": 12,
 }
 
-
-def _clean_text(s: Optional[str]) -> str:
-    return re.sub(r"\s+", " ", (s or "")).strip()
-
-
-# e.g. "20 December 2025", "13th Jan 2026"
-_DATE_RE = re.compile(
-    r"(?P<d>\d{1,2})(?:ST|ND|RD|TH)?\s+(?P<mon>[A-Z][a-zA-Z]+)\s+(?P<y>\d{4})"
-)
-
-
-def _parse_full_date(text: str) -> Optional[str]:
-    """
-    Parse dates like '20 December 2025' or '13th Jan 2026' → 'YYYY-MM-DD'
-    """
-    if not text:
-        return None
-    m = _DATE_RE.search(text)
-    if not m:
-        return None
-
-    d = int(m.group("d"))
-    mon_raw = m.group("mon").upper()
-    # Try full month, then first 3 letters
-    mon = MONTHS.get(mon_raw) or MONTHS.get(mon_raw[:3])
-    if not mon:
-        return None
-    y = int(m.group("y"))
-    try:
-        return datetime(y, mon, d).date().isoformat()
-    except ValueError:
-        return None
-
-
 _TITLE_KEYWORDS = (
     "Conference",
     "Congress",
@@ -77,38 +42,68 @@ _TITLE_KEYWORDS = (
     "Workshop",
 )
 
+def _clean_text(s: Optional[str]) -> str:
+    return re.sub(r"\s+", " ", (s or "")).strip()
+
+
+# Date formats: "20 December 2025", "13th Jan 2026"
+_DATE_RE = re.compile(
+    r"(?P<d>\d{1,2})(?:ST|ND|RD|TH)?\s+(?P<mon>[A-Za-z]+)\s+(?P<y>\d{4})"
+)
+
+def _parse_full_date(text: str) -> Optional[str]:
+    if not text:
+        return None
+    m = _DATE_RE.search(text)
+    if not m:
+        return None
+
+    d = int(m.group("d"))
+    mon_raw = m.group("mon").upper()
+    mon = MONTHS.get(mon_raw) or MONTHS.get(mon_raw[:3])
+    if not mon:
+        return None
+
+    y = int(m.group("y"))
+    try:
+        return datetime(y, mon, d).date().isoformat()
+    except ValueError:
+        return None
+
 
 def _extract_events_from_html(html: str, country_name: str) -> List[Dict]:
     """
-    Parse the new ACA layout (Tailwind + div-based cards) into normalized rows:
-      title, region, city, venue, starts_on, ends_on, link, source
+    Parse the new ACA layout (div/card-based) into normalized event rows:
+    title, region, city, venue, starts_on, ends_on, link, source
     """
     soup = BeautifulSoup(html, "lxml")
 
-    # Try to narrow to "Upcoming Energy Conferences in <country>" section
+    # Try to find "Upcoming Energy Conferences in <country>"
     header_pat = re.compile(
         rf"Upcoming Energy Conferences in .*{re.escape(country_name)}",
         re.I,
     )
     header_node = soup.find(string=header_pat)
+
     if header_node:
         container = header_node.parent
-        # Walk up a few levels to capture the surrounding conference list wrapper
         for _ in range(4):
             if container.parent:
                 container = container.parent
-        section_text = container.get_text("\n", strip=True)
+        section_soup = container
     else:
-        # Fallback: whole page text
-        section_text = soup.get_text("\n", strip=True)
+        section_soup = soup
+
+    section_text = section_soup.get_text("\n", strip=True)
 
     events: List[Dict] = []
 
-    # Each event card ends with a "View Event" button; use that to split.
+    # Split by "View Event" since each card ends with that button
     chunks = re.split(r"View Event", section_text)
 
     for raw_chunk in chunks:
         lines = [ln.strip() for ln in raw_chunk.splitlines() if ln.strip()]
+
         if len(lines) < 3:
             continue
 
@@ -116,19 +111,19 @@ def _extract_events_from_html(html: str, country_name: str) -> List[Dict]:
         date_line = None
         loc_line = None
 
-        # Find a title-looking line
+        # Detect title
         for ln in lines:
             if any(k in ln for k in _TITLE_KEYWORDS):
                 title = ln
                 break
 
-        # Find a date-looking line
+        # Detect date
         for ln in lines:
             if _DATE_RE.search(ln):
                 date_line = ln
                 break
 
-        # Find a location line that references the country and has a comma
+        # Detect location (City, Country)
         for ln in lines:
             if "," in ln and country_name.lower() in ln.lower():
                 loc_line = ln
@@ -141,7 +136,6 @@ def _extract_events_from_html(html: str, country_name: str) -> List[Dict]:
         if not starts_on:
             continue
 
-        # Location: "City, Country"
         city = loc_line.split(",")[0].strip().title()
 
         events.append(
@@ -152,19 +146,56 @@ def _extract_events_from_html(html: str, country_name: str) -> List[Dict]:
                 "venue": None,
                 "starts_on": starts_on,
                 "ends_on": None,
-                "link": None,  # could parse event URL later if needed
+                "link": None,  # Filled in later
                 "source": "AllConferenceAlert",
             }
         )
+
+    # ---------------------------
+    # SECOND PASS → ATTACH LINKS
+    # ---------------------------
+    for ev in events:
+        title_pat = re.compile(re.escape(ev["title"]), re.I)
+
+        title_node = section_soup.find(string=title_pat)
+        if not title_node:
+            title_node = soup.find(string=title_pat)
+        if not title_node:
+            continue
+
+        # climb up until the card wrapper
+        card = title_node.parent
+        for _ in range(6):
+            if card.parent:
+                card = card.parent
+
+        # Find the "View Event" link
+        link_el = card.find("a", href=True, string=re.compile(r"view event", re.I))
+
+        if not link_el:
+            # fallback: any anchor inside card
+            link_el = card.find("a", href=True)
+
+        if not link_el:
+            continue
+
+        href = link_el.get("href", "").strip()
+        if not href:
+            continue
+
+        # Absolute URL
+        if href.startswith("/"):
+            href = "https://www.allconferencealert.com" + href
+
+        ev["link"] = href
 
     return events
 
 
 def fetch_allconferencealert_events() -> List[Dict]:
     """
-    Uses Playwright (Chromium) to render JS and scrape the new ACA
-    div/card-based layout. Normalized output rows with keys:
-      title, region, city, venue, starts_on, ends_on, link, source
+    Fetch + parse new ACA layout using Playwright (render JS),
+    returning normalized rows ready for Supabase.
     """
     out: List[Dict] = []
 
@@ -181,15 +212,16 @@ def fetch_allconferencealert_events() -> List[Dict]:
         for country_name, url in ACA_SOURCES:
             page = context.new_page()
             print(f"[ACA] GET {url}")
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
             html = page.content()
+
             print(f"[ACA] HTML size: {len(html)}")
 
             rows = _extract_events_from_html(html, country_name)
             print(f"[ACA] Parsed {len(rows)} rows for {country_name}")
-            out.extend(rows)
 
+            out.extend(rows)
             page.close()
 
         context.close()
